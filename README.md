@@ -1,2 +1,2 @@
-# ckaymore_macro
+# Claymore_macro
 Claymore macro
