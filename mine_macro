@@ -4,7 +4,7 @@
 (async () => {
   // Cgeck if the mine token is selected
   if (canvas.tokens.controlled.length === 0) {
-    ui.notifications.warn("Du måste välja en token (claymore-minan) först!");
+    ui.notifications.warn("You need to choose the claymore token first!");
     return;
   }
   
@@ -41,7 +41,7 @@
   }
   
   // Ask the user to click to select direction of the blast
-  ui.notifications.info("Klicka på kartan för att välja riktning för claymore-minan");
+  ui.notifications.info("Click on the map to choose the direction of the claymore mine");
   
   const targetPoint = await new Promise((resolve) => {
     const handler = (event) => {
@@ -128,7 +128,7 @@
         damage: damageRoll
       });
       
-      // Apply damage to the tokens
+      // Apply damage to the tokens in the blast cone
       if (token.actor) {
         try {
           const currentHP = token.actor.system.health.value || 0;
