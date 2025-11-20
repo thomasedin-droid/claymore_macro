@@ -1,14 +1,14 @@
-// Twilight 2000 4E - Mine Macro
-// Creates a circular explosion with a 30m radius and damage zones B, C, D
+// Twilight 2000 4E - Claymore Mine Macro
+// Creates a 60° cone, 100m range with damage zones B, C, D
 
 (async () => {
-  // Kontrollera att en token är vald
+  // Cgeck if the mine token is selected
   if (canvas.tokens.controlled.length === 0) {
-    ui.notifications.warn("You have to select a mine token first!");
+    ui.notifications.warn("Du måste välja en token (claymore-minan) först!");
     return;
   }
   
-  const explosive = canvas.tokens.controlled[0];
+  const mine = canvas.tokens.controlled[0];
   const gridSize = canvas.grid.size;
   const gridDistance = canvas.scene.grid.distance;
   
@@ -40,13 +40,29 @@
     };
   }
   
-  ui.notifications.info("Detonate mine...");
+  // Ask the user to click to select direction of the blast
+  ui.notifications.info("Klicka på kartan för att välja riktning för claymore-minan");
   
-  // Create three circular templates for different damage zones
+  const targetPoint = await new Promise((resolve) => {
+    const handler = (event) => {
+      const point = event.data.getLocalPosition(canvas.app.stage);
+      canvas.app.stage.off("pointerdown", handler);
+      resolve(point);
+    };
+    canvas.app.stage.on("pointerdown", handler);
+  });
+  
+  // Beräkna riktning (vinkel i radianer)
+  const dx = targetPoint.x - mine.center.x;
+  const dy = targetPoint.y - mine.center.y;
+  const direction = Math.atan2(dy, dx);
+  
+  // Create three cone templates for different damage zones
+  const coneAngle = 60;
   const zones = [
-    { distance: 10, color: "#ff0000", label: "B" },  // Röd - 0-10m
-    { distance: 20, color: "#ff8800", label: "C" },  // Orange - 10-20m
-    { distance: 30, color: "#ffff00", label: "D" }   // Gul - 20-30m
+    { distance: 30, color: "#ff0000", label: "B" },
+    { distance: 60, color: "#ff8800", label: "C" },
+    { distance: 100, color: "#ffff00", label: "D" }
   ];
   
   const templates = [];
@@ -55,10 +71,12 @@
     const distanceInPixels = distanceInGridUnits * gridSize;
     
     const templateData = {
-      t: "circle",
+      t: "cone",
       user: game.user.id,
-      x: explosive.center.x,
-      y: explosive.center.y,
+      x: mine.center.x,
+      y: mine.center.y,
+      direction: Math.toDegrees(direction),
+      angle: coneAngle,
       distance: distanceInPixels / canvas.dimensions.distance,
       borderColor: zone.color,
       fillColor: zone.color,
@@ -70,62 +88,73 @@
     templates.push({ template: template[0], zone: zone.label, maxDist: zone.distance });
   }
   
-  // Find all tokens within a 30m radius
+  // Find all tokens within the 100m cone
   const allTokens = canvas.tokens.placeables;
   const hitTokens = [];
   
   for (let token of allTokens) {
-    if (token.id === explosive.id) continue;
+    if (token.id === mine.id) continue;
     
     const distancePixels = Math.sqrt(
-      Math.pow(token.center.x - explosive.center.x, 2) + 
-      Math.pow(token.center.y - explosive.center.y, 2)
+      Math.pow(token.center.x - mine.center.x, 2) + 
+      Math.pow(token.center.y - mine.center.y, 2)
     );
     
     const distanceMeters = (distancePixels / gridSize) * gridDistance;
     
-    if (distanceMeters > 30) continue;
+    if (distanceMeters > 100) continue;
     
-    // Determine damage zone based on distance
-    let damageZone = "D";
-    if (distanceMeters <= 10) damageZone = "B";
-    else if (distanceMeters <= 20) damageZone = "C";
+    const tokenAngle = Math.atan2(
+      token.center.y - mine.center.y,
+      token.center.x - mine.center.x
+    );
     
-    const damageRoll = rollT2KDamage(damageZone);
+    let angleDiff = Math.abs(tokenAngle - direction);
+    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
     
-    hitTokens.push({
-      token: token,
-      distance: Math.round(distanceMeters),
-      zone: damageZone,
-      damage: damageRoll
-    });
+    const halfConeAngle = (coneAngle / 2) * (Math.PI / 180);
     
-    // Apply damage to the character
-    if (token.actor) {
-      try {
-        const currentHP = token.actor.system.health.value || 0;
-        const newHP = Math.max(0, currentHP - damageRoll.total);
-        await token.actor.update({"system.health.value": newHP});
-      } catch (err) {
-        console.log(`Couldn't apply the damge to ${token.name}:`, err);
+    if (angleDiff <= halfConeAngle) {
+      let damageZone = "D";
+      if (distanceMeters <= 30) damageZone = "B";
+      else if (distanceMeters <= 60) damageZone = "C";
+      
+      const damageRoll = rollT2KDamage(damageZone);
+      
+      hitTokens.push({
+        token: token,
+        distance: Math.round(distanceMeters),
+        zone: damageZone,
+        damage: damageRoll
+      });
+      
+      // Apply damage to the tokens
+      if (token.actor) {
+        try {
+          const currentHP = token.actor.system.health.value || 0;
+          const newHP = Math.max(0, currentHP - damageRoll.total);
+          await token.actor.update({"system.health.value": newHP});
+        } catch (err) {
+          console.log(`Kunde inte applicera skada på ${token.name}:`, err);
+        }
       }
     }
   }
   
-  // Skapa rapport
+  // Create report
   if (hitTokens.length === 0) {
     ChatMessage.create({
-      content: `<h3>💣 Explosion</h3><p>No targets were hit..</p>`,
+      content: `<h3>💥 Claymore Detonation</h3><p>No targets was hit.</p>`,
       speaker: ChatMessage.getSpeaker()
     });
   } else {
-    let messageContent = `<h3>💣 Explosion (${explosive.name})</h3><table style="border: 1px solid #999; width: 100%;">
+    let messageContent = `<h3>💥 Claymore Detonation</h3><table style="border: 1px solid #999; width: 100%;">
       <tr style="background: #333;">
-        <th style="padding: 5px;">Target</th>
-        <th style="padding: 5px;">Distance</th>
-        <th style="padding: 5px;">Zone</th>
-        <th style="padding: 5px;">Dice's</th>
-        <th style="padding: 5px;">Damage</th>
+        <th style="padding: 5px;">Mål</th>
+        <th style="padding: 5px;">Avstånd</th>
+        <th style="padding: 5px;">Zon</th>
+        <th style="padding: 5px;">Tärningar</th>
+        <th style="padding: 5px;">Skada</th>
       </tr>`;
     
     for (let hit of hitTokens) {
@@ -141,7 +170,7 @@
       </tr>`;
     }
     
-    messageContent += `</table><p><em>Damage zones: B (0-10m), C (10-20m), D (20-30m)<br></em></p>`;
+    messageContent += `</table><p><em>Damage zones: B (0-30m), C (30-60m), D (60-100m)<br></em></p>`;
     
     ChatMessage.create({
       content: messageContent,
@@ -150,7 +179,7 @@
     });
   }
   
-  // Remove templates after 10 seconds
+  // Delete templates after 10 seconds
   setTimeout(async () => {
     for (let t of templates) {
       await t.template.delete();
